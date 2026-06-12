@@ -65,6 +65,13 @@ export interface StorefrontData {
   categories: MenuCategory[];
 }
 
+/** Storage path → public URL (menu-images bucket). Passes through full URLs. */
+export function menuImageUrl(imagePath: string | null): string | null {
+  if (!imagePath) return null;
+  if (imagePath.startsWith("http")) return imagePath;
+  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/menu-images/${imagePath}`;
+}
+
 export function formatCents(cents: number): string {
   return (cents / 100).toLocaleString("en-US", {
     style: "currency",

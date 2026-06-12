@@ -26,4 +26,29 @@ export const stripeProvider: PaymentProvider = {
       isMock: false,
     };
   },
+  // Independent record straight from Stripe — what the audit panel compares
+  // our DB against so owners can trust the money trail.
+  async getAudit({ intentId }) {
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+    const intent = await stripe.paymentIntents.retrieve(intentId, {
+      expand: ["latest_charge"],
+    });
+    const charge = intent.latest_charge as Stripe.Charge | null;
+    const pm = charge?.payment_method_details;
+    const wallet = pm?.card?.wallet?.type; // apple_pay, google_pay, link…
+    const methodLabel = wallet
+      ? wallet.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+      : pm?.card
+        ? `${(pm.card.brand ?? "Card").toUpperCase()} •••• ${pm.card.last4 ?? "????"}`
+        : (pm?.type ?? "Unknown");
+    return {
+      provider: "stripe",
+      status: intent.status,
+      amountCents: intent.amount,
+      methodLabel,
+      paidAt: charge?.created ? new Date(charge.created * 1000).toISOString() : null,
+      receiptUrl: charge?.receipt_url ?? null,
+      isMock: false,
+    };
+  },
 };

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireStaff } from "@/lib/dashboard";
 import { formatCents } from "@/lib/menu-types";
+import { getPaymentProvider } from "@/lib/payments/provider";
 import type { OrderStatus } from "@/lib/orders/state-machine";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,103 @@ const STATUS_STYLE: Partial<Record<OrderStatus, string>> = {
   canceled: "bg-red-100 text-red-700",
   refunded: "bg-purple-100 text-purple-700",
 };
+
+/**
+ * The audit: our DB vs the payment provider's independent record. Owners see
+ * the transaction exists at the processor, the amounts match, and how it was
+ * paid — the "am I actually getting this money?" answer.
+ */
+async function PaymentAuditPanel({
+  intentId,
+  expectedTotalCents,
+}: {
+  intentId: string;
+  expectedTotalCents: number;
+}) {
+  const provider = await getPaymentProvider();
+  let audit = null;
+  try {
+    audit = await provider.getAudit({ intentId });
+  } catch {
+    /* provider unreachable — render the failure state below */
+  }
+
+  return (
+    <section className="mb-4 rounded-lg border border-black/10 bg-white p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <h2 className="font-semibold">Payment audit</h2>
+        {audit?.isMock && (
+          <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">
+            TEST MODE
+          </span>
+        )}
+      </div>
+
+      {!audit ? (
+        <p className="text-sm text-red-600">
+          Could not reach the payment provider to verify this transaction —
+          try again shortly.
+        </p>
+      ) : (
+        <dl className="space-y-1.5 text-sm">
+          <div className="flex justify-between">
+            <dt className="text-gray-600">Processor status</dt>
+            <dd
+              className={`font-bold ${
+                audit.status === "succeeded" ? "text-green-700" : "text-amber-700"
+              }`}
+            >
+              {audit.status === "succeeded" ? "✓ Payment succeeded" : audit.status}
+            </dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-gray-600">Amount matches this order</dt>
+            <dd
+              className={`font-bold ${
+                audit.amountCents === expectedTotalCents
+                  ? "text-green-700"
+                  : "text-red-600"
+              }`}
+            >
+              {audit.amountCents === expectedTotalCents
+                ? `✓ ${formatCents(audit.amountCents)}`
+                : `✗ processor shows ${formatCents(audit.amountCents)}`}
+            </dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-gray-600">Paid with</dt>
+            <dd className="font-medium">{audit.methodLabel}</dd>
+          </div>
+          {audit.paidAt && (
+            <div className="flex justify-between">
+              <dt className="text-gray-600">Charged at</dt>
+              <dd>{fmtTime(audit.paidAt)}</dd>
+            </div>
+          )}
+          {audit.receiptUrl && (
+            <div className="flex justify-between">
+              <dt className="text-gray-600">Processor receipt</dt>
+              <dd>
+                <a
+                  href={audit.receiptUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  View in Stripe
+                </a>
+              </dd>
+            </div>
+          )}
+        </dl>
+      )}
+      <p className="mt-3 text-xs text-gray-400">
+        Verified live against {audit?.isMock ? "the test provider" : "Stripe"} —
+        not our database.
+      </p>
+    </section>
+  );
+}
 
 function fmtTime(ts: string): string {
   return new Date(ts).toLocaleString("en-US", {
@@ -195,6 +293,13 @@ export default async function OrderDetailPage({
           </p>
         )}
       </section>
+
+      {order.stripe_payment_intent_id && (
+        <PaymentAuditPanel
+          intentId={order.stripe_payment_intent_id}
+          expectedTotalCents={order.total_cents}
+        />
+      )}
 
       <section className="rounded-lg border border-black/10 bg-white p-4">
         <h2 className="mb-2 font-semibold">Timeline</h2>

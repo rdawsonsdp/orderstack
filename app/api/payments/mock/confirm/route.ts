@@ -39,9 +39,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, publicToken: order.public_token });
   }
 
+  // Record payment facts exactly as the Stripe webhook will: paid time and
+  // method label feed the owner-facing Payments tab and audit panel.
   const { error } = await admin
     .from("orders")
-    .update({ status: "placed" })
+    .update({
+      status: "placed",
+      paid_at: new Date().toISOString(),
+      payment_method_label: "Test card •••• 4242 (simulated)",
+    })
     .eq("id", order.id)
     .eq("status", "pending_payment");
   if (error) {

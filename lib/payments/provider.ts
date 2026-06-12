@@ -18,6 +18,21 @@ export interface PaymentIntentResult {
   isMock: boolean;
 }
 
+/**
+ * Live cross-check of one transaction against the provider — the data behind
+ * the order detail "Payment audit" panel. `amountCents` and `status` come
+ * from the provider, never our DB, so owners see an independent record.
+ */
+export interface PaymentAudit {
+  provider: "stripe" | "mock";
+  status: string; // provider-reported, e.g. "succeeded"
+  amountCents: number; // provider-reported amount
+  methodLabel: string; // "Visa •••• 4242", "Apple Pay", …
+  paidAt: string | null;
+  receiptUrl: string | null;
+  isMock: boolean;
+}
+
 export interface PaymentProvider {
   name: "stripe" | "mock";
   createPaymentIntent(params: {
@@ -25,6 +40,7 @@ export interface PaymentProvider {
     orderId: string;
     customerEmail: string;
   }): Promise<PaymentIntentResult>;
+  getAudit(params: { intentId: string }): Promise<PaymentAudit | null>;
 }
 
 export async function getPaymentProvider(): Promise<PaymentProvider> {

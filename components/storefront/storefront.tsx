@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   formatCents,
+  menuImageUrl,
   type MenuItem,
   type MenuModifierGroup,
   type StorefrontData,
@@ -197,14 +198,15 @@ export function Storefront({ data }: { data: StorefrontData }) {
             <div className="grid gap-3 sm:grid-cols-2">
               {category.items.map((item) => {
                 const soldOut = isSoldOut(item);
+                const imageUrl = menuImageUrl(item.image_path);
                 return (
                   <button
                     key={item.id}
                     disabled={soldOut}
                     onClick={() => setActiveItem(item)}
-                    className="flex items-start justify-between gap-3 rounded-lg border border-black/10 bg-white p-4 text-left shadow-sm transition hover:shadow-md disabled:opacity-50"
+                    className="flex items-stretch justify-between gap-3 overflow-hidden rounded-lg border border-black/10 bg-white text-left shadow-sm transition hover:shadow-md disabled:opacity-50"
                   >
-                    <div>
+                    <div className="flex-1 p-4">
                       <h3 className="font-semibold">{item.name}</h3>
                       {item.description && (
                         <p className="mt-1 line-clamp-2 text-sm text-gray-600">
@@ -216,12 +218,20 @@ export function Storefront({ data }: { data: StorefrontData }) {
                         {item.modifier_groups.some(
                           (g) => g.modifiers.some((m) => m.price_delta_cents > 0)
                         ) && "+"}
+                        {soldOut && (
+                          <span className="ml-2 rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-500">
+                            Sold out
+                          </span>
+                        )}
                       </p>
                     </div>
-                    {soldOut && (
-                      <span className="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-500">
-                        Sold out
-                      </span>
+                    {imageUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={imageUrl}
+                        alt={item.name}
+                        className="h-auto w-28 shrink-0 object-cover"
+                      />
                     )}
                   </button>
                 );
@@ -312,6 +322,14 @@ function ItemModal({
             ×
           </button>
         </div>
+        {menuImageUrl(item.image_path) && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={menuImageUrl(item.image_path)!}
+            alt={item.name}
+            className="mb-3 max-h-56 w-full rounded-lg object-cover"
+          />
+        )}
         {item.description && (
           <p className="mb-4 text-sm text-gray-600">{item.description}</p>
         )}

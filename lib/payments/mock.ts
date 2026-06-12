@@ -16,4 +16,25 @@ export const mockProvider: PaymentProvider = {
     const id = `pi_mock_${randomUUID().replaceAll("-", "")}`;
     return { id, clientSecret: `${id}_secret`, isMock: true };
   },
+  // Simulated audit: echoes what our DB recorded at confirm time so the
+  // audit panel renders; the real independent check arrives with Stripe.
+  async getAudit({ intentId }) {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const { data: order } = await createAdminClient()
+      .from("orders")
+      .select("total_cents, paid_at, payment_method_label, status")
+      .eq("stripe_payment_intent_id", intentId)
+      .single();
+    if (!order) return null;
+    const paid = order.paid_at !== null;
+    return {
+      provider: "mock",
+      status: paid ? "succeeded" : "requires_payment",
+      amountCents: order.total_cents,
+      methodLabel: order.payment_method_label ?? "Test payment",
+      paidAt: order.paid_at,
+      receiptUrl: null,
+      isMock: true,
+    };
+  },
 };

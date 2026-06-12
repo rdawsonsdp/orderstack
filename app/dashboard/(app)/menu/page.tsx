@@ -11,7 +11,7 @@ export default async function DashboardMenuPage() {
     .select(
       `id, name, active,
        categories (id, name, sort,
-         items (id, name, price_cents, sort, is_available, sold_out_until))`
+         items (id, name, price_cents, sort, is_available, sold_out_until, image_path))`
     )
     .eq("restaurant_id", restaurant.id);
 
