@@ -37,4 +37,10 @@ export const mockProvider: PaymentProvider = {
       isMock: true,
     };
   },
+  async refund({ intentId }) {
+    // No money moved, nothing to reverse — succeed so the order flow
+    // (rejected → refunded) behaves exactly as it will with Stripe.
+    void intentId;
+    return { ok: true };
+  },
 };

@@ -11,6 +11,12 @@ export const cartSchema = z.object({
   type: z.enum(["pickup", "delivery"]),
   tipCents: z.number().int().min(0).default(0),
   scheduledFor: z.iso.datetime().nullish(),
+  couponCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z0-9-]{3,24}$/)
+    .nullish(),
   specialInstructions: z.string().max(500).nullish(),
   lines: z
     .array(
@@ -52,6 +58,13 @@ export interface PricingContext {
   taxRate: number; // e.g. 0.1075
   platformFeeCents: number; // diner-paid convenience fee
   deliveryFeeCents: number; // 0 for pickup; quoted for delivery
+  /** Validated coupon row, looked up server-side; null/undefined = no coupon. */
+  coupon?: {
+    id: string;
+    kind: "percent" | "fixed";
+    value: number; // percent 1-100 | cents off
+    minSubtotalCents: number;
+  } | null;
 }
 
 export interface PricedLine {
@@ -71,6 +84,8 @@ export interface PricedLine {
 export interface PricedOrder {
   lines: PricedLine[];
   subtotalCents: number;
+  discountCents: number;
+  couponId: string | null;
   taxCents: number;
   tipCents: number;
   deliveryFeeCents: number;
@@ -155,17 +170,36 @@ export function priceOrder(cart: Cart, ctx: PricingContext): PricedOrder {
   });
 
   const subtotalCents = lines.reduce((sum, l) => sum + l.lineTotalCents, 0);
-  const taxCents = Math.round(subtotalCents * ctx.taxRate);
+
+  let discountCents = 0;
+  if (ctx.coupon) {
+    if (subtotalCents < ctx.coupon.minSubtotalCents) {
+      throw new PricingError(
+        `Coupon requires a minimum subtotal of $${(ctx.coupon.minSubtotalCents / 100).toFixed(2)}`,
+        "COUPON_MIN"
+      );
+    }
+    discountCents =
+      ctx.coupon.kind === "percent"
+        ? Math.round((subtotalCents * ctx.coupon.value) / 100)
+        : Math.min(ctx.coupon.value, subtotalCents);
+  }
+
+  // Discount reduces the taxable base.
+  const taxableCents = subtotalCents - discountCents;
+  const taxCents = Math.round(taxableCents * ctx.taxRate);
   const deliveryFeeCents = cart.type === "delivery" ? ctx.deliveryFeeCents : 0;
 
   return {
     lines,
     subtotalCents,
+    discountCents,
+    couponId: ctx.coupon?.id ?? null,
     taxCents,
     tipCents: cart.tipCents,
     deliveryFeeCents,
     platformFeeCents: ctx.platformFeeCents,
     totalCents:
-      subtotalCents + taxCents + cart.tipCents + deliveryFeeCents + ctx.platformFeeCents,
+      taxableCents + taxCents + cart.tipCents + deliveryFeeCents + ctx.platformFeeCents,
   };
 }

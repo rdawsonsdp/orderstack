@@ -41,6 +41,8 @@ export interface PaymentProvider {
     customerEmail: string;
   }): Promise<PaymentIntentResult>;
   getAudit(params: { intentId: string }): Promise<PaymentAudit | null>;
+  /** Full refund of the payment. Used when a restaurant rejects an order. */
+  refund(params: { intentId: string }): Promise<{ ok: boolean; error?: string }>;
 }
 
 export async function getPaymentProvider(): Promise<PaymentProvider> {

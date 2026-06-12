@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { cartSchema, priceOrder, PricingError } from "@/lib/pricing";
+import { isOpenAt } from "@/lib/hours";
 import { loadPricingContext } from "@/lib/pricing-server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getPaymentProvider } from "@/lib/payments/provider";
@@ -37,7 +38,53 @@ export async function POST(request: NextRequest) {
 
   const result = await loadPricingContext(cart);
   if (!result.ok) {
-    return NextResponse.json({ error: result.error }, { status: result.status });
+    return NextResponse.json(
+      { error: result.error, message: result.message },
+      { status: result.status }
+    );
+  }
+
+  // Hours enforcement: ASAP orders need the kitchen open right now; scheduled
+  // orders need a future slot inside open hours, at least prep-time away.
+  const { location } = result;
+  const timeZone = location.restaurants.timezone;
+  const now = new Date();
+  if (!cart.scheduledFor) {
+    if (!isOpenAt(now, timeZone, location.business_hours, location.hour_overrides)) {
+      return NextResponse.json(
+        {
+          error: "RESTAURANT_CLOSED",
+          message:
+            "The restaurant is closed right now — schedule a pickup time instead.",
+        },
+        { status: 422 }
+      );
+    }
+  } else {
+    const scheduledMs = Date.parse(cart.scheduledFor);
+    // Grace window so a slot picked as "now + prep" isn't rejected just
+    // because the diner spent a few minutes filling in the form.
+    const graceMs = 5 * 60_000;
+    const earliestMs = now.getTime() + location.prep_time_min * 60_000 - graceMs;
+    if (
+      Number.isNaN(scheduledMs) ||
+      scheduledMs < now.getTime() ||
+      scheduledMs < earliestMs ||
+      !isOpenAt(
+        new Date(scheduledMs),
+        timeZone,
+        location.business_hours,
+        location.hour_overrides
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error: "INVALID_SCHEDULE",
+          message: "That pickup time isn't available — please pick another slot.",
+        },
+        { status: 422 }
+      );
+    }
   }
 
   let priced;
@@ -78,6 +125,8 @@ export async function POST(request: NextRequest) {
       status: "pending_payment",
       scheduled_for: cart.scheduledFor ?? null,
       special_instructions: cart.specialInstructions ?? null,
+      coupon_id: priced.couponId,
+      discount_cents: priced.discountCents,
       subtotal_cents: priced.subtotalCents,
       tax_cents: priced.taxCents,
       tip_cents: priced.tipCents,
@@ -135,6 +184,25 @@ export async function POST(request: NextRequest) {
     .eq("id", order.id);
   if (intentError) {
     return NextResponse.json({ error: "ORDER_UPDATE_FAILED" }, { status: 500 });
+  }
+
+  // Count the redemption now that the order exists. PostgREST can't express
+  // `SET redemption_count = redemption_count + 1`, so do an optimistic
+  // read-then-write guarded on the value read (a concurrent bump just skips
+  // this one; an RPC would make it atomic — acceptable for launch volume).
+  if (priced.couponId) {
+    const { data: couponRow } = await admin
+      .from("coupons")
+      .select("redemption_count")
+      .eq("id", priced.couponId)
+      .single();
+    if (couponRow) {
+      await admin
+        .from("coupons")
+        .update({ redemption_count: couponRow.redemption_count + 1 })
+        .eq("id", priced.couponId)
+        .eq("redemption_count", couponRow.redemption_count);
+    }
   }
 
   return NextResponse.json({

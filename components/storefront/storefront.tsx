@@ -9,7 +9,11 @@ import {
   type MenuModifierGroup,
   type StorefrontData,
 } from "@/lib/menu-types";
+import { isOpenAt, orderingSlots } from "@/lib/hours";
 import type { PricedOrder } from "@/lib/pricing";
+
+/** /api/orders/price response: PricedOrder plus current-open flag. */
+type PricedResponse = PricedOrder & { orderingOpen?: boolean };
 
 interface CartLine {
   key: string;
@@ -42,10 +46,47 @@ export function Storefront({ data }: { data: StorefrontData }) {
     : "";
   const [activeItem, setActiveItem] = useState<MenuItem | null>(null);
   const [lines, setLines] = useState<CartLine[]>([]);
-  const [priced, setPriced] = useState<PricedOrder | null>(null);
+  const [priced, setPriced] = useState<PricedResponse | null>(null);
   const [priceError, setPriceError] = useState<string | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
   const storageKey = `orderstack-cart-${restaurant.slug}`;
+
+  // Open/closed is computed after mount (it depends on "now", which would
+  // otherwise risk an SSR hydration mismatch at an open/close boundary).
+  const [openNow, setOpenNow] = useState<boolean | null>(null);
+  const [nextOpenLabel, setNextOpenLabel] = useState<string | null>(null);
+  useEffect(() => {
+    const now = new Date();
+    const open = isOpenAt(
+      now,
+      restaurant.timezone,
+      location.business_hours,
+      location.hour_overrides
+    );
+    setOpenNow(open);
+    if (!open) {
+      // First 15-min slot (prep 0) over the next week ≈ the next opening.
+      const next = orderingSlots(
+        now,
+        restaurant.timezone,
+        location.business_hours,
+        location.hour_overrides,
+        0,
+        7,
+        15
+      )[0];
+      setNextOpenLabel(
+        next
+          ? new Intl.DateTimeFormat("en-US", {
+              timeZone: restaurant.timezone,
+              weekday: "long",
+              hour: "numeric",
+              minute: "2-digit",
+            }).format(next)
+          : null
+      );
+    }
+  }, [restaurant.timezone, location.business_hours, location.hour_overrides]);
 
   useEffect(() => {
     try {
@@ -174,6 +215,16 @@ export function Storefront({ data }: { data: StorefrontData }) {
           </button>
         </div>
       </header>
+
+      {openNow === false && (
+        <div className="border-b border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <div className="mx-auto max-w-5xl">
+            <span className="font-semibold">Closed now</span>
+            {nextOpenLabel && <> — next open {nextOpenLabel}.</>}{" "}
+            You can still schedule an order ahead.
+          </div>
+        </div>
+      )}
 
       <nav className="sticky top-[57px] z-10 overflow-x-auto border-b border-black/10 bg-white/90 px-4 backdrop-blur">
         <div className="mx-auto flex max-w-5xl gap-4">
@@ -431,7 +482,7 @@ function CartDrawer({
   onCheckout,
 }: {
   lines: CartLine[];
-  priced: PricedOrder | null;
+  priced: PricedResponse | null;
   priceError: string | null;
   platformFeeCents: number;
   onRemove: (key: string) => void;
@@ -481,6 +532,11 @@ function CartDrawer({
         </div>
 
         <div className="border-t border-black/10 p-4">
+          {priced?.orderingOpen === false && (
+            <p className="mb-2 rounded bg-amber-50 p-2 text-sm text-amber-800">
+              Closed now — you can schedule a pickup time at checkout.
+            </p>
+          )}
           {priceError && (
             <p className="mb-2 rounded bg-red-50 p-2 text-sm text-red-700">
               {priceError}
@@ -489,6 +545,12 @@ function CartDrawer({
           {priced && (
             <dl className="mb-3 space-y-1 text-sm">
               <Row label="Subtotal" value={priced.subtotalCents} />
+              {priced.discountCents > 0 && (
+                <div className="flex justify-between text-green-700">
+                  <dt>Discount</dt>
+                  <dd>−{formatCents(priced.discountCents)}</dd>
+                </div>
+              )}
               <Row label="Tax" value={priced.taxCents} />
               <Row label="Service fee" value={platformFeeCents} />
               <div className="flex justify-between border-t border-black/10 pt-2 text-base font-bold">

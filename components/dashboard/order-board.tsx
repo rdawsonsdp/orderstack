@@ -13,6 +13,7 @@ export interface BoardOrder {
   type: "pickup" | "delivery";
   placed_at: string | null;
   promised_at: string | null;
+  scheduled_for: string | null;
   total_cents: number;
   special_instructions: string | null;
   created_at: string;
@@ -74,8 +75,8 @@ export function OrderBoard({
     const { data } = await supabaseRef.current
       .from("orders")
       .select(
-        `id, order_number, status, type, placed_at, promised_at, total_cents,
-         special_instructions, created_at,
+        `id, order_number, status, type, placed_at, promised_at, scheduled_for,
+         total_cents, special_instructions, created_at,
          customers (name, phone),
          order_items (id, name_snapshot, qty, notes,
            order_item_modifiers (name_snapshot))`
@@ -148,14 +149,24 @@ export function OrderBoard({
 
   async function transition(order: BoardOrder, to: OrderStatus, promisedAt?: Date) {
     setError(null);
-    const update: { status: OrderStatus; promised_at?: string } = { status: to };
-    if (promisedAt) update.promised_at = promisedAt.toISOString();
-    const { error } = await supabaseRef.current
-      .from("orders")
-      .update(update)
-      .eq("id", order.id);
-    if (error) {
-      setError(`Order #${order.order_number}: ${error.message}`);
+    const res = await fetch(`/api/orders/${order.id}/transition`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status: to,
+        ...(promisedAt && { promisedAt: promisedAt.toISOString() }),
+      }),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as {
+        message?: string;
+        error?: string;
+      } | null;
+      setError(
+        `Order #${order.order_number}: ${
+          data?.message ?? data?.error ?? `transition failed (${res.status})`
+        }`
+      );
       return;
     }
     refetch();
@@ -255,20 +266,53 @@ export function OrderBoard({
   );
 }
 
+/** "Today 5:30 PM" / "Tomorrow 11:00 AM" / "Saturday 12:15 PM" */
+function formatScheduled(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const day = new Date(d);
+  day.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((day.getTime() - today.getTime()) / 86_400_000);
+  const dayLabel =
+    diffDays === 0
+      ? "Today"
+      : diffDays === 1
+        ? "Tomorrow"
+        : d.toLocaleDateString("en-US", { weekday: "long" });
+  return `${dayLabel} ${d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  })}`;
+}
+
 /**
  * The chef's number: countdown to the promised time, readable across the
  * kitchen. Red + pulsing inside 5 minutes, "LATE" when past. New orders
- * (no promise yet) count UP since they were placed instead.
+ * (no promise yet) count UP since they were placed — unless they're
+ * scheduled pre-orders, which count DOWN to their scheduled time instead.
  */
 function PromiseTimer({ order, now }: { order: BoardOrder; now: number }) {
-  if (order.promised_at && order.status !== "placed") {
-    const remaining = new Date(order.promised_at).getTime() - now;
+  const target =
+    order.status === "placed"
+      ? order.scheduled_for // pre-order: count down to the scheduled time
+      : order.promised_at;
+  if (target) {
+    const label = order.status === "placed" ? "TO SCHEDULED" : "TO PROMISE";
+    const remaining = new Date(target).getTime() - now;
     const mins = Math.ceil(Math.abs(remaining) / 60_000);
+    // Pre-orders can be hours/days out — keep the big number readable.
+    const big =
+      mins < 100
+        ? `${mins}m`
+        : mins < 48 * 60
+          ? `${Math.round(mins / 60)}h`
+          : `${Math.round(mins / (24 * 60))}d`;
     if (remaining < 0) {
       return (
         <div className="animate-pulse rounded-xl bg-red-600 px-4 py-2 text-center text-white">
           <div className="text-4xl font-black leading-none tabular-nums">
-            {mins}m
+            {big}
           </div>
           <div className="text-sm font-bold">LATE</div>
         </div>
@@ -281,8 +325,8 @@ function PromiseTimer({ order, now }: { order: BoardOrder; now: number }) {
           urgent ? "animate-pulse bg-red-600 text-white" : "bg-gray-900 text-white"
         }`}
       >
-        <div className="text-4xl font-black leading-none tabular-nums">{mins}m</div>
-        <div className="text-sm font-bold">{urgent ? "DUE SOON" : "TO PROMISE"}</div>
+        <div className="text-4xl font-black leading-none tabular-nums">{big}</div>
+        <div className="text-sm font-bold">{urgent ? "DUE SOON" : label}</div>
       </div>
     );
   }
@@ -339,7 +383,14 @@ function OrderCard({
             {order.customers?.phone && <> · {order.customers.phone}</>}
           </p>
         </div>
-        <PromiseTimer order={order} now={now} />
+        <div className="flex flex-col items-end gap-2">
+          {order.scheduled_for && (
+            <span className="rounded-lg bg-purple-600 px-3 py-1.5 text-sm font-black tracking-wide text-white">
+              ⏰ SCHEDULED {formatScheduled(order.scheduled_for)}
+            </span>
+          )}
+          <PromiseTimer order={order} now={now} />
+        </div>
       </header>
 
       <ul className="mb-3 space-y-1.5">

@@ -51,4 +51,15 @@ export const stripeProvider: PaymentProvider = {
       isMock: false,
     };
   },
+  async refund({ intentId }) {
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+    try {
+      // Phase 2 Connect: add reverse_transfer so the restaurant's share
+      // claws back correctly on destination charges.
+      await stripe.refunds.create({ payment_intent: intentId });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  },
 };

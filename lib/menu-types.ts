@@ -1,5 +1,7 @@
 /** Client-safe menu types + formatting (no server imports). */
 
+import type { HoursRow, OverrideRow } from "@/lib/hours";
+
 export interface MenuModifier {
   id: string;
   name: string;
@@ -47,6 +49,8 @@ export interface StorefrontData {
       heroUrl?: string | null;
     };
     platform_fee_cents: number;
+    /** IANA timezone, e.g. "America/Chicago" — all hours math happens here. */
+    timezone: string;
   };
   location: {
     id: string;
@@ -61,6 +65,8 @@ export interface StorefrontData {
     delivery_enabled: boolean;
     prep_time_min: number;
     tax_rate: number;
+    business_hours: HoursRow[];
+    hour_overrides: OverrideRow[];
   };
   categories: MenuCategory[];
 }

@@ -11,8 +11,8 @@ export default async function DashboardOrdersPage() {
   const { data: orders } = await supabase
     .from("orders")
     .select(
-      `id, order_number, status, type, placed_at, promised_at, total_cents,
-       special_instructions, created_at,
+      `id, order_number, status, type, placed_at, promised_at, scheduled_for,
+       total_cents, special_instructions, created_at,
        customers (name, phone),
        order_items (id, name_snapshot, qty, notes,
          order_item_modifiers (name_snapshot))`

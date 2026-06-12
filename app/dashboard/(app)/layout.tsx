@@ -74,6 +74,18 @@ export default async function DashboardLayout({
               >
                 Payments
               </Link>
+              <Link
+                href="/dashboard/coupons"
+                className="rounded-lg bg-white/15 px-5 py-3 font-bold backdrop-blur-sm hover:bg-white/25"
+              >
+                Coupons
+              </Link>
+              <Link
+                href="/dashboard/reports"
+                className="rounded-lg bg-white/15 px-5 py-3 font-bold backdrop-blur-sm hover:bg-white/25"
+              >
+                Reports
+              </Link>
             </nav>
             <SignOutButton />
           </div>

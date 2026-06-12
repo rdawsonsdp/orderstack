@@ -37,6 +37,7 @@ export async function getStorefrontData(
     name: string;
     branding: StorefrontData["restaurant"]["branding"] | null;
     platform_fee_cents: number;
+    timezone: string;
     locations: Array<
       Omit<StorefrontData["location"], "tax_rate"> & { tax_rate: number | string }
     >;
@@ -46,9 +47,11 @@ export async function getStorefrontData(
   const { data: restaurant } = (await supabase
     .from("restaurants")
     .select(
-      `id, slug, name, branding, platform_fee_cents,
+      `id, slug, name, branding, platform_fee_cents, timezone,
        locations (id, name, address_line1, address_line2, city, state, postal_code,
-                  phone, pickup_enabled, delivery_enabled, prep_time_min, tax_rate),
+                  phone, pickup_enabled, delivery_enabled, prep_time_min, tax_rate,
+                  business_hours (day_of_week, opens, closes),
+                  hour_overrides (date, closed, opens, closes)),
        menus (id, active,
          categories (id, name, sort,
            items (id, name, description, price_cents, image_path, sort,
@@ -93,8 +96,14 @@ export async function getStorefrontData(
       name: restaurant.name,
       branding: restaurant.branding ?? {},
       platform_fee_cents: restaurant.platform_fee_cents,
+      timezone: restaurant.timezone,
     },
-    location: { ...location, tax_rate: Number(location.tax_rate) },
+    location: {
+      ...location,
+      tax_rate: Number(location.tax_rate),
+      business_hours: location.business_hours ?? [],
+      hour_overrides: location.hour_overrides ?? [],
+    },
     categories,
   };
 }
