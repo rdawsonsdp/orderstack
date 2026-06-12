@@ -81,7 +81,7 @@ async function handlePaymentSucceeded(
   const { data: order, error: fetchError } = await admin
     .from("orders")
     .select(
-      `id, status, order_number, public_token, total_cents, scheduled_for, coupon_id,
+      `id, status, order_number, public_token, total_cents, scheduled_for, coupon_id, restaurant_id,
        customers ( name, email, phone ),
        restaurants ( name, slug ),
        locations ( alert_email, alert_phone ),
@@ -151,6 +151,11 @@ async function handlePaymentSucceeded(
   if (order.coupon_id) {
     await admin.rpc("increment_coupon_redemption", { coupon: order.coupon_id });
   }
+
+  // Queue the kitchen ticket for the CloudPRNT printer (no-op without one).
+  await admin
+    .from("print_jobs")
+    .insert({ restaurant_id: order.restaurant_id, order_id: order.id });
 
   // Notifications are best-effort: a failed send must never fail the webhook
   // (the order is already placed; Stripe retrying would double-notify).

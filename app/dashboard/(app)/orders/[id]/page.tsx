@@ -176,13 +176,23 @@ export default async function OrderDetailPage({
             {order.promised_at && <> · promised {fmtTime(order.promised_at)}</>}
           </p>
         </div>
-        <span
-          className={`rounded-full px-3 py-1 text-sm font-semibold ${
-            STATUS_STYLE[order.status as OrderStatus] ?? "bg-gray-100 text-gray-700"
-          }`}
-        >
-          {order.status}
-        </span>
+        <div className="flex items-center gap-2">
+          <a
+            href={`/dashboard/print/${order.id}`}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-md border border-black/15 px-3 py-1 text-sm font-bold text-gray-600 hover:bg-gray-50"
+          >
+            🖨 Print
+          </a>
+          <span
+            className={`rounded-full px-3 py-1 text-sm font-semibold ${
+              STATUS_STYLE[order.status as OrderStatus] ?? "bg-gray-100 text-gray-700"
+            }`}
+          >
+            {order.status}
+          </span>
+        </div>
       </header>
 
       <section className="mb-4 rounded-lg border border-black/10 bg-white p-4">

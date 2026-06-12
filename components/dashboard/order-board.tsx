@@ -382,6 +382,14 @@ function OrderCard({
             {placedTime} · {formatCents(order.total_cents)}
             {order.customers?.phone && <> · {order.customers.phone}</>}
           </p>
+          <a
+            href={`/dashboard/print/${order.id}`}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-1 inline-block rounded-md border border-black/15 px-3 py-1 text-sm font-bold text-gray-600 hover:bg-gray-50"
+          >
+            🖨 Print
+          </a>
         </div>
         <div className="flex flex-col items-end gap-2">
           {order.scheduled_for && (

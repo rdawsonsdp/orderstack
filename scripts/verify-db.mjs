@@ -74,10 +74,10 @@ await exec("seed.sql", await readFile("supabase/seed.sql", "utf8"));
 
 console.log("Sanity checks…");
 await expectRows(
-  "18 public tables created",
+  "19 public tables created",
   `select count(*)::int as n from information_schema.tables
    where table_schema = 'public' and table_type = 'BASE TABLE'`,
-  (r) => r[0].n === 18
+  (r) => r[0].n === 19
 );
 await expectRows(
   "seed: 19 items, 11 modifiers",
