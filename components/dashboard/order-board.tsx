@@ -31,20 +31,77 @@ const READY_IN_OPTIONS = [10, 15, 20, 30, 45] as const;
 /** Countdown turns red (and pulses) inside this window. */
 const URGENT_MS = 5 * 60_000;
 
-/** New-order chime: three rising beeps via WebAudio (no asset needed). */
-function playAlert() {
+/**
+ * New-order alert sounds, synthesized via WebAudio (no assets). Each entry is
+ * a list of notes: [startSec, freqHz, durSec, wave]. Volume scales the master
+ * gain 0–1; kitchens crank it, offices mute it.
+ */
+const SOUND_TYPES = {
+  chime: {
+    label: "Chime",
+    notes: [
+      [0, 660, 0.18, "sine"],
+      [0.2, 880, 0.18, "sine"],
+      [0.4, 1100, 0.18, "sine"],
+    ],
+  },
+  bell: {
+    label: "Bell",
+    notes: [
+      [0, 1320, 0.5, "sine"],
+      [0, 1980, 0.35, "sine"],
+      [0.45, 1100, 0.7, "sine"],
+      [0.45, 1650, 0.45, "sine"],
+    ],
+  },
+  buzzer: {
+    label: "Buzzer",
+    notes: [
+      [0, 220, 0.35, "square"],
+      [0.45, 220, 0.35, "square"],
+    ],
+  },
+  alarm: {
+    label: "Alarm (loud)",
+    notes: [
+      [0, 880, 0.15, "square"],
+      [0.2, 880, 0.15, "square"],
+      [0.4, 880, 0.15, "square"],
+      [0.7, 1175, 0.15, "square"],
+      [0.9, 1175, 0.15, "square"],
+      [1.1, 1175, 0.15, "square"],
+    ],
+  },
+} as const;
+
+type SoundType = keyof typeof SOUND_TYPES;
+
+interface SoundSettings {
+  type: SoundType;
+  volume: number; // 0–1
+}
+
+const DEFAULT_SOUND: SoundSettings = { type: "chime", volume: 0.6 };
+
+function playAlert({ type, volume }: SoundSettings) {
+  if (volume <= 0) return;
   try {
     const ctx = new AudioContext();
-    [0, 0.2, 0.4].forEach((t, i) => {
+    const sound = SOUND_TYPES[type] ?? SOUND_TYPES.chime;
+    // Square waves are perceptually much louder than sines — tame them so
+    // the volume slider feels consistent across types.
+    for (const [start, freq, dur, wave] of sound.notes) {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.frequency.value = 660 + i * 220;
-      gain.gain.setValueAtTime(0.25, ctx.currentTime + t);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.18);
+      osc.type = wave as OscillatorType;
+      osc.frequency.value = freq;
+      const peak = Math.max(0.0001, volume * (wave === "square" ? 0.35 : 0.8));
+      gain.gain.setValueAtTime(peak, ctx.currentTime + start);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
       osc.connect(gain).connect(ctx.destination);
-      osc.start(ctx.currentTime + t);
-      osc.stop(ctx.currentTime + t + 0.2);
-    });
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + dur + 0.05);
+    }
   } catch {
     /* audio blocked until first user interaction — title flash still fires */
   }
@@ -64,6 +121,34 @@ export function OrderBoard({
   const [flash, setFlash] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const supabaseRef = useRef(createClient());
+
+  // Sound settings: persisted per restaurant; read through a ref so the
+  // realtime callback always plays the current choice (no stale closure).
+  const soundKey = `orderstack-sound-${restaurantId}`;
+  const [sound, setSound] = useState<SoundSettings>(DEFAULT_SOUND);
+  const [soundOpen, setSoundOpen] = useState(false);
+  const soundRef = useRef(sound);
+  soundRef.current = sound;
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(soundKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.type in SOUND_TYPES && typeof parsed.volume === "number") {
+          setSound({ type: parsed.type, volume: parsed.volume });
+        }
+      }
+    } catch {
+      /* corrupted settings — defaults */
+    }
+  }, [soundKey]);
+  const updateSound = (patch: Partial<SoundSettings>) => {
+    setSound((prev) => {
+      const next = { ...prev, ...patch };
+      localStorage.setItem(soundKey, JSON.stringify(next));
+      return next;
+    });
+  };
 
   // One clock drives every countdown on the board.
   useEffect(() => {
@@ -116,7 +201,7 @@ export function OrderBoard({
               (payload.new as { status?: string }).status === "placed" &&
               (payload.old as { status?: string }).status === "pending_payment");
           if (isNewOrder) {
-            playAlert();
+            playAlert(soundRef.current);
             setFlash(true);
             setTimeout(() => setFlash(false), 3000);
           }
@@ -191,14 +276,77 @@ export function OrderBoard({
         flash ? "bg-amber-100" : ""
       }`}
     >
-      <div className="mb-4 flex items-baseline justify-between">
+      <div className="mb-4 flex items-center justify-between">
         <h1 className="text-3xl font-extrabold tracking-tight">Live orders</h1>
-        <span className="text-2xl font-bold tabular-nums text-gray-500">
-          {new Date(now).toLocaleTimeString("en-US", {
-            hour: "numeric",
-            minute: "2-digit",
-          })}
-        </span>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <button
+              onClick={() => setSoundOpen((o) => !o)}
+              className="rounded-lg border-2 border-black/10 bg-white px-4 py-2 text-lg font-bold hover:bg-gray-50"
+              title="Alert sound settings"
+            >
+              {sound.volume === 0 ? "🔇" : "🔊"}{" "}
+              <span className="text-sm text-gray-500">
+                {SOUND_TYPES[sound.type].label}
+              </span>
+            </button>
+            {soundOpen && (
+              <div className="absolute right-0 top-full z-30 mt-2 w-72 rounded-xl border-2 border-black/10 bg-white p-4 shadow-xl">
+                <p className="mb-2 text-sm font-bold uppercase tracking-wide text-gray-500">
+                  New-order alert
+                </p>
+                <div className="mb-3 grid grid-cols-2 gap-2">
+                  {(
+                    Object.entries(SOUND_TYPES) as [
+                      SoundType,
+                      (typeof SOUND_TYPES)[SoundType],
+                    ][]
+                  ).map(([key, def]) => (
+                    <button
+                      key={key}
+                      onClick={() => {
+                        updateSound({ type: key });
+                        playAlert({ type: key, volume: soundRef.current.volume });
+                      }}
+                      className={`rounded-lg border-2 px-3 py-2 text-base font-bold ${
+                        sound.type === key
+                          ? "border-(--accent) bg-(--accent)/10"
+                          : "border-black/10 hover:bg-gray-50"
+                      }`}
+                    >
+                      {def.label}
+                    </button>
+                  ))}
+                </div>
+                <label className="mb-1 block text-sm font-bold uppercase tracking-wide text-gray-500">
+                  Volume {sound.volume === 0 ? "(muted)" : `${Math.round(sound.volume * 100)}%`}
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={Math.round(sound.volume * 100)}
+                  onChange={(e) => updateSound({ volume: Number(e.target.value) / 100 })}
+                  onMouseUp={() => playAlert(soundRef.current)}
+                  onTouchEnd={() => playAlert(soundRef.current)}
+                  className="w-full accent-(--accent)"
+                />
+                <button
+                  onClick={() => playAlert(soundRef.current)}
+                  className="mt-3 w-full rounded-lg bg-gray-900 py-2 text-base font-bold text-white hover:bg-black"
+                >
+                  ▶ Test sound
+                </button>
+              </div>
+            )}
+          </div>
+          <span className="text-2xl font-bold tabular-nums text-gray-500">
+            {new Date(now).toLocaleTimeString("en-US", {
+              hour: "numeric",
+              minute: "2-digit",
+            })}
+          </span>
+        </div>
       </div>
       {error && (
         <p className="mb-4 rounded-lg bg-red-50 p-4 text-lg font-semibold text-red-700">
