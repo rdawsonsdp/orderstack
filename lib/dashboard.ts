@@ -16,7 +16,7 @@ export async function requireStaff() {
 
   const { data: membership } = await supabase
     .from("staff_memberships")
-    .select("restaurant_id, role, restaurants (id, name, branding)")
+    .select("restaurant_id, role, restaurants (id, name, branding, timezone)")
     .eq("user_id", user.id)
     .limit(1)
     .single();
@@ -27,6 +27,7 @@ export async function requireStaff() {
     id: string;
     name: string;
     branding: { colors?: { primary?: string } } | null;
+    timezone: string;
   };
 
   return { supabase, user, role: membership.role, restaurant };

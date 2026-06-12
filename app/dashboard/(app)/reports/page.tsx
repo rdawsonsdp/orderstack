@@ -3,10 +3,6 @@ import { formatCents } from "@/lib/menu-types";
 
 export const dynamic = "force-dynamic";
 
-// TODO(multi-TZ): store a timezone per location and use it here. Chicago
-// pilot only for now, so a hardcoded fallback is fine.
-const RESTAURANT_TZ = "America/Chicago";
-
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 interface ReportOrder {
@@ -26,25 +22,28 @@ interface ReportLine {
 }
 
 /** YYYY-MM-DD in the restaurant's timezone (en-CA gives ISO ordering). */
-const dayKeyFmt = new Intl.DateTimeFormat("en-CA", {
-  timeZone: RESTAURANT_TZ,
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
+const dayKeyFmt = (timeZone: string) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
 
-const dayLabelFmt = new Intl.DateTimeFormat("en-US", {
-  timeZone: RESTAURANT_TZ,
-  weekday: "short",
-  month: "short",
-  day: "numeric",
-});
+const dayLabelFmt = (timeZone: string) =>
+  new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
 
-const hourFmt = new Intl.DateTimeFormat("en-US", {
-  timeZone: RESTAURANT_TZ,
-  hour: "numeric",
-  hourCycle: "h23",
-});
+const hourFmt = (timeZone: string) =>
+  new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "numeric",
+    hourCycle: "h23",
+  });
 
 function hourLabel(h: number): string {
   if (h === 0) return "12 AM";
@@ -86,18 +85,21 @@ export default async function ReportsPage() {
   const repeatRate =
     byCustomer.size > 0 ? Math.round((repeaters / byCustomer.size) * 100) : 0;
 
-  // ---- Sales by day (last 14 days) ------------------------------------
+  // ---- Sales by day (last 14 days, restaurant-local) -------------------
+  const tz = restaurant.timezone;
+  const keyFmt = dayKeyFmt(tz);
+  const labelFmt = dayLabelFmt(tz);
   const grossByDay = new Map<string, number>();
   for (const o of orders) {
-    const key = dayKeyFmt.format(new Date(o.paid_at));
+    const key = keyFmt.format(new Date(o.paid_at));
     grossByDay.set(key, (grossByDay.get(key) ?? 0) + o.total_cents);
   }
   const days = Array.from({ length: 14 }, (_, i) => {
     const d = new Date(Date.now() - (13 - i) * DAY_MS);
     return {
-      key: dayKeyFmt.format(d),
-      label: dayLabelFmt.format(d),
-      cents: grossByDay.get(dayKeyFmt.format(d)) ?? 0,
+      key: keyFmt.format(d),
+      label: labelFmt.format(d),
+      cents: grossByDay.get(keyFmt.format(d)) ?? 0,
     };
   });
   const maxDay = Math.max(1, ...days.map((d) => d.cents));
@@ -127,10 +129,11 @@ export default async function ReportsPage() {
     .slice(0, 10);
   const maxItemQty = Math.max(1, ...topItems.map((i) => i.qty));
 
-  // ---- Busiest hours ---------------------------------------------------
+  // ---- Busiest hours (restaurant-local) --------------------------------
+  const hFmt = hourFmt(tz);
   const byHour = new Array<number>(24).fill(0);
   for (const o of orders) {
-    const h = parseInt(hourFmt.format(new Date(o.paid_at)), 10) % 24;
+    const h = parseInt(hFmt.format(new Date(o.paid_at)), 10) % 24;
     byHour[h] += 1;
   }
   const hours = byHour

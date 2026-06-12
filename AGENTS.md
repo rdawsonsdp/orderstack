@@ -37,11 +37,17 @@ Stripe Connect Express · Uber Direct (Phase 3) · Resend · Twilio.
 ## Layout
 
 - `app/(storefront)/[tenant]/` — diner-facing menu/cart/checkout/tracking
-- `app/dashboard/` — restaurant staff (Realtime order tablet, menu manager)
-- `app/admin/` — platform operator
-- `app/api/webhooks/{stripe,uber}/` — webhook handlers (service role)
-- `lib/` — tenant resolution, pricing engine, state machine, supabase clients
-- `proxy.ts` — subdomain → /{slug} rewrite (Next 16 proxy, ex-middleware)
+- `app/dashboard/` — restaurant staff: order board (KDS), menu, payments,
+  coupons, reports; auth via Supabase email/password + staff_memberships RLS
+- `app/admin/` — platform operator; gated by PLATFORM_ADMIN_EMAILS env allowlist
+- `app/api/orders/` — create (hours/schedule/coupon enforced), price, slots,
+  [id]/transition (staff-auth status changes; reject ⇒ provider refund)
+- `app/api/webhooks/stripe/` — the ONLY path to `placed` once Stripe is live;
+  `app/api/payments/mock/confirm` stands in until then (auto-disabled by keys)
+- `app/api/public/menu/[slug]/` — CORS-open menu JSON for external client sites
+- `lib/` — tenant resolution, pricing engine, hours, state machine,
+  notifications (Resend/Twilio w/ console fallback), payments providers
+- `proxy.ts` — subdomain → /{slug} rewrite + dashboard session refresh
 - `supabase/migrations/` — schema source of truth; `supabase/seed.sql` — dev data
 
 ## Tenant routing

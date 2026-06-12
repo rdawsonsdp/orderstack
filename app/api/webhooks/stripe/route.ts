@@ -81,7 +81,7 @@ async function handlePaymentSucceeded(
   const { data: order, error: fetchError } = await admin
     .from("orders")
     .select(
-      `id, status, order_number, public_token, total_cents, scheduled_for,
+      `id, status, order_number, public_token, total_cents, scheduled_for, coupon_id,
        customers ( name, email, phone ),
        restaurants ( name, slug ),
        locations ( alert_email, alert_phone ),
@@ -145,6 +145,11 @@ async function handlePaymentSucceeded(
   if (!updated || updated.length === 0) {
     // A concurrent delivery beat us to it — it owns the notifications.
     return NextResponse.json({ received: true });
+  }
+
+  // Payment landed — count the coupon redemption atomically.
+  if (order.coupon_id) {
+    await admin.rpc("increment_coupon_redemption", { coupon: order.coupon_id });
   }
 
   // Notifications are best-effort: a failed send must never fail the webhook

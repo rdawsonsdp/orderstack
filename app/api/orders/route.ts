@@ -186,24 +186,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "ORDER_UPDATE_FAILED" }, { status: 500 });
   }
 
-  // Count the redemption now that the order exists. PostgREST can't express
-  // `SET redemption_count = redemption_count + 1`, so do an optimistic
-  // read-then-write guarded on the value read (a concurrent bump just skips
-  // this one; an RPC would make it atomic — acceptable for launch volume).
-  if (priced.couponId) {
-    const { data: couponRow } = await admin
-      .from("coupons")
-      .select("redemption_count")
-      .eq("id", priced.couponId)
-      .single();
-    if (couponRow) {
-      await admin
-        .from("coupons")
-        .update({ redemption_count: couponRow.redemption_count + 1 })
-        .eq("id", priced.couponId)
-        .eq("redemption_count", couponRow.redemption_count);
-    }
-  }
+  // Redemption counting happens when payment lands (webhook / mock confirm)
+  // via the atomic increment_coupon_redemption RPC — unpaid carts don't burn
+  // a coupon use.
 
   return NextResponse.json({
     orderId: order.id,

@@ -20,6 +20,7 @@ type ConfirmOrderRow = {
   order_number: number;
   total_cents: number;
   scheduled_for: string | null;
+  coupon_id: string | null;
   customers: { email: string; phone: string | null } | null;
   restaurants: { name: string; slug: string } | null;
   locations: { alert_email: string | null; alert_phone: string | null } | null;
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
   const { data: order } = (await admin
     .from("orders")
     .select(
-      `id, status, public_token, order_number, total_cents, scheduled_for,
+      `id, status, public_token, order_number, total_cents, scheduled_for, coupon_id,
        customers (email, phone),
        restaurants (name, slug),
        locations (alert_email, alert_phone),
@@ -79,6 +80,11 @@ export async function POST(request: NextRequest) {
     .eq("status", "pending_payment");
   if (error) {
     return NextResponse.json({ error: "TRANSITION_FAILED" }, { status: 500 });
+  }
+
+  // Payment landed — count the coupon redemption atomically.
+  if (order.coupon_id) {
+    await admin.rpc("increment_coupon_redemption", { coupon: order.coupon_id });
   }
 
   // Notify diner + owner. Senders swallow transport errors, so a failed
